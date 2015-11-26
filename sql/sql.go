@@ -27,7 +27,7 @@ func Open(driverName, dataSourceName string) (*DB, error) {
 	return NewDB(db), nil
 }
 
-// NOTE: 申请的 *sql.Stmt 请不要关闭
+// NOTE: Never call sql.Stmt.Close().
 func (db *DB) Prepare(query string) (stmt *sql.Stmt, err error) {
 	db.stmtSetRWMutex.RLock()
 	stmt = db.stmtSet[query]

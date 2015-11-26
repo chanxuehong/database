@@ -32,7 +32,7 @@ func Open(driverName, dataSourceName string) (*DB, error) {
 	return NewDB(db), nil
 }
 
-// NOTE: 申请的 *sqlx.Stmt 请不要关闭
+// NOTE: Never call sqlx.Stmt.Close() and sqlx.Stmt.Stmt.Close().
 func (db *DB) Preparex(query string) (stmt *sqlx.Stmt, err error) {
 	db.stmtSetRWMutex.RLock()
 	stmt = db.stmtSet[query]
@@ -57,7 +57,7 @@ func (db *DB) Preparex(query string) (stmt *sqlx.Stmt, err error) {
 	return
 }
 
-// NOTE: 申请的 *sqlx.NamedStmt 请不要关闭
+// NOTE: Never call sqlx.NamedStmt.Close() and sqlx.NamedStmt.Stmt.Close().
 func (db *DB) PrepareNamed(query string) (stmt *sqlx.NamedStmt, err error) {
 	db.namedStmtSetRWMutex.RLock()
 	stmt = db.namedStmtSet[query]
