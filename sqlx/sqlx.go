@@ -1,6 +1,7 @@
 package sqlx
 
 import (
+	"database/sql"
 	"sync"
 
 	"github.com/jmoiron/sqlx"
@@ -10,7 +11,10 @@ type DB struct {
 	*sqlx.DB
 
 	stmtSetRWMutex sync.RWMutex
-	stmtSet        map[string]*sqlx.Stmt // map[query]*sqlx.Stmt
+	stmtSet        map[string]*sql.Stmt // map[query]*sql.Stmt
+
+	stmtxSetRWMutex sync.RWMutex
+	stmtxSet        map[string]*sqlx.Stmt // map[query]*sqlx.Stmt
 
 	namedStmtSetRWMutex sync.RWMutex
 	namedStmtSet        map[string]*sqlx.NamedStmt // map[query]*sqlx.NamedStmt
@@ -19,7 +23,8 @@ type DB struct {
 func NewDB(db *sqlx.DB) *DB {
 	return &DB{
 		DB:           db,
-		stmtSet:      make(map[string]*sqlx.Stmt),
+		stmtSet:      make(map[string]*sql.Stmt),
+		stmtxSet:     make(map[string]*sqlx.Stmt),
 		namedStmtSet: make(map[string]*sqlx.NamedStmt),
 	}
 }
@@ -32,8 +37,8 @@ func Open(driverName, dataSourceName string) (*DB, error) {
 	return NewDB(db), nil
 }
 
-// NOTE: Never call sqlx.Stmt.Close() and sqlx.Stmt.Stmt.Close().
-func (db *DB) Preparex(query string) (stmt *sqlx.Stmt, err error) {
+// NOTE: Never call sql.Stmt.Close().
+func (db *DB) Prepare(query string) (stmt *sql.Stmt, err error) {
 	db.stmtSetRWMutex.RLock()
 	stmt = db.stmtSet[query]
 	db.stmtSetRWMutex.RUnlock()
@@ -49,11 +54,36 @@ func (db *DB) Preparex(query string) (stmt *sqlx.Stmt, err error) {
 		return
 	}
 
-	stmt, err = db.DB.Preparex(query)
+	stmt, err = db.DB.Prepare(query)
 	if err != nil {
 		return
 	}
 	db.stmtSet[query] = stmt
+	return
+}
+
+// NOTE: Never call sqlx.Stmt.Close() and sqlx.Stmt.Stmt.Close().
+func (db *DB) Preparex(query string) (stmt *sqlx.Stmt, err error) {
+	db.stmtxSetRWMutex.RLock()
+	stmt = db.stmtxSet[query]
+	db.stmtxSetRWMutex.RUnlock()
+
+	if stmt != nil {
+		return
+	}
+
+	db.stmtxSetRWMutex.Lock()
+	defer db.stmtxSetRWMutex.Unlock()
+
+	if stmt = db.stmtxSet[query]; stmt != nil {
+		return
+	}
+
+	stmt, err = db.DB.Preparex(query)
+	if err != nil {
+		return
+	}
+	db.stmtxSet[query] = stmt
 	return
 }
 
