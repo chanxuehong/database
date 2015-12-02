@@ -9,13 +9,13 @@ type DB struct {
 	*sql.DB
 
 	stmtSetRWMutex sync.RWMutex
-	stmtSet        map[string]*sql.Stmt // map[query]*sql.Stmt
+	stmtSet        map[string]Stmt // map[query]*sql.Stmt
 }
 
 func NewDB(db *sql.DB) *DB {
 	return &DB{
 		DB:      db,
-		stmtSet: make(map[string]*sql.Stmt),
+		stmtSet: make(map[string]Stmt),
 	}
 }
 
@@ -27,27 +27,39 @@ func Open(driverName, dataSourceName string) (*DB, error) {
 	return NewDB(db), nil
 }
 
-// NOTE: Never call sql.Stmt.Close().
-func (db *DB) Prepare(query string) (stmt *sql.Stmt, err error) {
+func (db *DB) Prepare(query string) (stmt Stmt, err error) {
 	db.stmtSetRWMutex.RLock()
 	stmt = db.stmtSet[query]
 	db.stmtSetRWMutex.RUnlock()
 
-	if stmt != nil {
+	if stmt.Stmt != nil {
 		return
 	}
 
 	db.stmtSetRWMutex.Lock()
 	defer db.stmtSetRWMutex.Unlock()
 
-	if stmt = db.stmtSet[query]; stmt != nil {
+	if stmt = db.stmtSet[query]; stmt.Stmt != nil {
 		return
 	}
 
-	stmt, err = db.DB.Prepare(query)
+	stmtx, err := db.DB.Prepare(query)
 	if err != nil {
 		return
 	}
+	stmt = Stmt{
+		Stmt: stmtx,
+	}
 	db.stmtSet[query] = stmt
 	return
+}
+
+// =====================================================================================================================
+
+type Stmt struct {
+	*sql.Stmt
+}
+
+func (s Stmt) Close() error {
+	return nil
 }
