@@ -47,9 +47,7 @@ func (db *DB) Prepare(query string) (stmt Stmt, err error) {
 	if err != nil {
 		return
 	}
-	stmt = Stmt{
-		Stmt: stmtx,
-	}
+	stmt = Stmt{Stmt: stmtx}
 	db.stmtSet[query] = stmt
 	return
 }

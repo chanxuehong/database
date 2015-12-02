@@ -57,9 +57,7 @@ func (db *DB) Prepare(query string) (stmt Stmt, err error) {
 	if err != nil {
 		return
 	}
-	stmt = Stmt{
-		Stmt: stmtx,
-	}
+	stmt = Stmt{Stmt: stmtx}
 	db.stmtSet[query] = stmt
 	return
 }
@@ -84,9 +82,7 @@ func (db *DB) Preparex(query string) (stmt Stmtx, err error) {
 	if err != nil {
 		return
 	}
-	stmt = Stmtx{
-		Stmt: stmtx,
-	}
+	stmt = Stmtx{Stmt: stmtx}
 	db.stmtxSet[query] = stmt
 	return
 }
@@ -96,14 +92,14 @@ func (db *DB) PrepareNamed(query string) (stmt NamedStmt, err error) {
 	stmt = db.namedStmtSet[query]
 	db.namedStmtSetRWMutex.RUnlock()
 
-	if stmt.Stmt != nil {
+	if stmt.NamedStmt != nil {
 		return
 	}
 
 	db.namedStmtSetRWMutex.Lock()
 	defer db.namedStmtSetRWMutex.Unlock()
 
-	if stmt = db.namedStmtSet[query]; stmt.Stmt != nil {
+	if stmt = db.namedStmtSet[query]; stmt.NamedStmt != nil {
 		return
 	}
 
@@ -111,9 +107,7 @@ func (db *DB) PrepareNamed(query string) (stmt NamedStmt, err error) {
 	if err != nil {
 		return
 	}
-	stmt = NamedStmt{
-		NamedStmt: stmtx,
-	}
+	stmt = NamedStmt{NamedStmt: stmtx}
 	db.namedStmtSet[query] = stmt
 	return
 }
