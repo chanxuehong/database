@@ -9,7 +9,7 @@ type DB struct {
 	*sql.DB
 
 	stmtSetRWMutex sync.RWMutex
-	stmtSet        map[string]Stmt // map[query]*sql.Stmt
+	stmtSet        map[string]Stmt // map[query]*database/sql.Stmt
 }
 
 func NewDB(db *sql.DB) *DB {
