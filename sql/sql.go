@@ -3,19 +3,22 @@ package sql
 import (
 	"database/sql"
 	"sync"
+	"sync/atomic"
+	"unsafe"
 )
 
 type DB struct {
 	*sql.DB
 
-	stmtSetRWMutex sync.RWMutex
-	stmtSet        map[string]Stmt // map[query]*database/sql.Stmt
+	stmtMapPtrMutex sync.Mutex     // used only by writers
+	stmtMapPtr      unsafe.Pointer // *stmtMap
 }
+
+type stmtMap map[string]Stmt // map[query]Stmt
 
 func NewDB(db *sql.DB) *DB {
 	return &DB{
-		DB:      db,
-		stmtSet: make(map[string]Stmt),
+		DB: db,
 	}
 }
 
@@ -28,19 +31,22 @@ func Open(driverName, dataSourceName string) (*DB, error) {
 }
 
 func (db *DB) Prepare(query string) (stmt Stmt, err error) {
-	db.stmtSetRWMutex.RLock()
-	stmt = db.stmtSet[query]
-	db.stmtSetRWMutex.RUnlock()
-
-	if stmt.Stmt != nil {
-		return
+	var m stmtMap
+	if p := (*stmtMap)(atomic.LoadPointer(&db.stmtMapPtr)); p != nil {
+		m = *p
+		if stmt = m[query]; stmt.Stmt != nil {
+			return
+		}
 	}
 
-	db.stmtSetRWMutex.Lock()
-	defer db.stmtSetRWMutex.Unlock()
+	db.stmtMapPtrMutex.Lock()
+	defer db.stmtMapPtrMutex.Unlock()
 
-	if stmt = db.stmtSet[query]; stmt.Stmt != nil {
-		return
+	if p := (*stmtMap)(atomic.LoadPointer(&db.stmtMapPtr)); p != nil {
+		m = *p
+		if stmt = m[query]; stmt.Stmt != nil {
+			return
+		}
 	}
 
 	stmtx, err := db.DB.Prepare(query)
@@ -48,7 +54,14 @@ func (db *DB) Prepare(query string) (stmt Stmt, err error) {
 		return
 	}
 	stmt = Stmt{Stmt: stmtx}
-	db.stmtSet[query] = stmt
+
+	m2 := make(stmtMap, len(m)+1)
+	for k, v := range m {
+		m2[k] = v
+	}
+	m2[query] = stmt
+
+	atomic.StorePointer(&db.stmtMapPtr, unsafe.Pointer(&m2))
 	return
 }
 

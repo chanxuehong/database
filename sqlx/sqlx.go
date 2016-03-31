@@ -2,6 +2,8 @@ package sqlx
 
 import (
 	"sync"
+	"sync/atomic"
+	"unsafe"
 
 	"github.com/chanxuehong/database/sql"
 	"github.com/jmoiron/sqlx"
@@ -10,22 +12,25 @@ import (
 type DB struct {
 	*sqlx.DB
 
-	sqlStmtSetRWMutex sync.RWMutex
-	sqlStmtSet        map[string]sql.Stmt // map[query]*database/sql.Stmt
+	sqlStmtMapPtrMutex sync.Mutex     // used only by writers
+	sqlStmtMapPtr      unsafe.Pointer // *sqlStmtMap
 
-	stmtSetRWMutex sync.RWMutex
-	stmtSet        map[string]Stmt // map[query]*github.com/jmoiron/sqlx.Stmt
+	stmtMapPtrMutex sync.Mutex     // used only by writers
+	stmtMapPtr      unsafe.Pointer // *stmtMap
 
-	namedStmtSetRWMutex sync.RWMutex
-	namedStmtSet        map[string]NamedStmt // map[query]*github.com/jmoiron/sqlx.NamedStmt
+	namedStmtMapPtrMutex sync.Mutex     // used only by writers
+	namedStmtMapPtr      unsafe.Pointer // *namedStmtMap
 }
+
+type (
+	sqlStmtMap   map[string]sql.Stmt  // map[query]sql.Stmt
+	stmtMap      map[string]Stmt      // map[query]Stmt
+	namedStmtMap map[string]NamedStmt // map[query]NamedStmt
+)
 
 func NewDB(db *sqlx.DB) *DB {
 	return &DB{
-		DB:           db,
-		sqlStmtSet:   make(map[string]sql.Stmt),
-		stmtSet:      make(map[string]Stmt),
-		namedStmtSet: make(map[string]NamedStmt),
+		DB: db,
 	}
 }
 
@@ -38,19 +43,22 @@ func Open(driverName, dataSourceName string) (*DB, error) {
 }
 
 func (db *DB) Prepare(query string) (stmt sql.Stmt, err error) {
-	db.sqlStmtSetRWMutex.RLock()
-	stmt = db.sqlStmtSet[query]
-	db.sqlStmtSetRWMutex.RUnlock()
-
-	if stmt.Stmt != nil {
-		return
+	var m sqlStmtMap
+	if p := (*sqlStmtMap)(atomic.LoadPointer(&db.sqlStmtMapPtr)); p != nil {
+		m = *p
+		if stmt = m[query]; stmt.Stmt != nil {
+			return
+		}
 	}
 
-	db.sqlStmtSetRWMutex.Lock()
-	defer db.sqlStmtSetRWMutex.Unlock()
+	db.sqlStmtMapPtrMutex.Lock()
+	defer db.sqlStmtMapPtrMutex.Unlock()
 
-	if stmt = db.sqlStmtSet[query]; stmt.Stmt != nil {
-		return
+	if p := (*sqlStmtMap)(atomic.LoadPointer(&db.sqlStmtMapPtr)); p != nil {
+		m = *p
+		if stmt = m[query]; stmt.Stmt != nil {
+			return
+		}
 	}
 
 	stmtx, err := db.DB.Prepare(query)
@@ -58,24 +66,34 @@ func (db *DB) Prepare(query string) (stmt sql.Stmt, err error) {
 		return
 	}
 	stmt = sql.Stmt{Stmt: stmtx}
-	db.sqlStmtSet[query] = stmt
+
+	m2 := make(sqlStmtMap, len(m)+1)
+	for k, v := range m {
+		m2[k] = v
+	}
+	m2[query] = stmt
+
+	atomic.StorePointer(&db.sqlStmtMapPtr, unsafe.Pointer(&m2))
 	return
 }
 
 func (db *DB) Preparex(query string) (stmt Stmt, err error) {
-	db.stmtSetRWMutex.RLock()
-	stmt = db.stmtSet[query]
-	db.stmtSetRWMutex.RUnlock()
-
-	if stmt.Stmt != nil {
-		return
+	var m stmtMap
+	if p := (*stmtMap)(atomic.LoadPointer(&db.stmtMapPtr)); p != nil {
+		m = *p
+		if stmt = m[query]; stmt.Stmt != nil {
+			return
+		}
 	}
 
-	db.stmtSetRWMutex.Lock()
-	defer db.stmtSetRWMutex.Unlock()
+	db.stmtMapPtrMutex.Lock()
+	defer db.stmtMapPtrMutex.Unlock()
 
-	if stmt = db.stmtSet[query]; stmt.Stmt != nil {
-		return
+	if p := (*stmtMap)(atomic.LoadPointer(&db.stmtMapPtr)); p != nil {
+		m = *p
+		if stmt = m[query]; stmt.Stmt != nil {
+			return
+		}
 	}
 
 	stmtx, err := db.DB.Preparex(query)
@@ -83,24 +101,34 @@ func (db *DB) Preparex(query string) (stmt Stmt, err error) {
 		return
 	}
 	stmt = Stmt{Stmt: stmtx}
-	db.stmtSet[query] = stmt
+
+	m2 := make(stmtMap, len(m)+1)
+	for k, v := range m {
+		m2[k] = v
+	}
+	m2[query] = stmt
+
+	atomic.StorePointer(&db.stmtMapPtr, unsafe.Pointer(&m2))
 	return
 }
 
 func (db *DB) PrepareNamed(query string) (stmt NamedStmt, err error) {
-	db.namedStmtSetRWMutex.RLock()
-	stmt = db.namedStmtSet[query]
-	db.namedStmtSetRWMutex.RUnlock()
-
-	if stmt.NamedStmt != nil {
-		return
+	var m namedStmtMap
+	if p := (*namedStmtMap)(atomic.LoadPointer(&db.namedStmtMapPtr)); p != nil {
+		m = *p
+		if stmt = m[query]; stmt.Stmt != nil {
+			return
+		}
 	}
 
-	db.namedStmtSetRWMutex.Lock()
-	defer db.namedStmtSetRWMutex.Unlock()
+	db.namedStmtMapPtrMutex.Lock()
+	defer db.namedStmtMapPtrMutex.Unlock()
 
-	if stmt = db.namedStmtSet[query]; stmt.NamedStmt != nil {
-		return
+	if p := (*namedStmtMap)(atomic.LoadPointer(&db.namedStmtMapPtr)); p != nil {
+		m = *p
+		if stmt = m[query]; stmt.Stmt != nil {
+			return
+		}
 	}
 
 	stmtx, err := db.DB.PrepareNamed(query)
@@ -108,7 +136,14 @@ func (db *DB) PrepareNamed(query string) (stmt NamedStmt, err error) {
 		return
 	}
 	stmt = NamedStmt{NamedStmt: stmtx}
-	db.namedStmtSet[query] = stmt
+
+	m2 := make(namedStmtMap, len(m)+1)
+	for k, v := range m {
+		m2[k] = v
+	}
+	m2[query] = stmt
+
+	atomic.StorePointer(&db.namedStmtMapPtr, unsafe.Pointer(&m2))
 	return
 }
 
